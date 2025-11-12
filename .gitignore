@@ -1,0 +1,119 @@
+# ======================================
+# 🐍 Python / LangChain Project Gitignore
+# ======================================
+
+# --- Python cache / build files ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.pyo
+*.pyd
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+*.egg-info/
+.installed.cfg
+*.egg
+pip-wheel-metadata/
+*.manifest
+*.spec
+
+# --- Virtual environments ---
+venv/
+env/
+.venv/
+ENV/
+env.bak/
+venv.bak/
+
+# --- IDE / Editor files ---
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+*.code-workspace
+
+# --- Jupyter Notebooks ---
+.ipynb_checkpoints
+
+# --- OS generated files ---
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# --- Environment variables ---
+.env
+.env.*
+!env.example
+
+# --- Logs / local data ---
+*.log
+*.out
+*.err
+logs/
+tmp/
+temp/
+*.pid
+
+# --- LangChain / Vector DB related ---
+chroma_db/
+chroma/
+*.sqlite3
+*.db
+cache/
+__cache__/
+
+# --- PyTorch / Tensorflow / ML models ---
+*.pt
+*.pth
+*.ckpt
+*.h5
+*.tflite
+*.onnx
+
+# --- Output / Generated files ---
+outputs/
+data/output/
+results/
+exported/
+*.bak
+
+# --- FastAPI / Flask specific ---
+instance/
+*.sqlite
+*.db-journal
+
+# --- VSCode / PyCharm project settings ---
+*.iml
+*.ipr
+*.iws
+
+# --- Coverage / testing ---
+.coverage
+htmlcov/
+.tox/
+.nox/
+.coverage.*
+.cache
+pytest_cache/
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+
+# --- Node / Frontend (if you have UI parts) ---
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+dist/
+build/
