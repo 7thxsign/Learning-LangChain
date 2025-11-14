@@ -1,36 +1,47 @@
-# main2_fixed.py
 from dataclasses import dataclass
 import requests
-from dotenv import load_dotenv
 import os
-import sys
+from dotenv import load_dotenv
 
+# Corrected: Use the correct message imports
+# Corrected: Use the correct message imports
+from langchain_core.messages import HumanMessage
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from langchain_core.tools import tool, ToolRuntime
+from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain.agents import create_tool_calling_agent
+from pydantic import BaseModel, Field
 load_dotenv()
+
+# --- Schemas ---
+class ResponseFormat(BaseModel):
+    """The final structured response containing the weather information."""
+    summary: str = Field(description="A humorous and sarcastic summary of the weather.")
+    temperature_celcius: float = Field(description="The current temperature in Celsius.")
+    temperature_fahrenheit: float = Field(description="The current temperature in Fahrenheit.")
+    humidity: float = Field(description="The current humidity percentage.")
 
 @dataclass
 class Context:
     user_id: str
 
-@dataclass
-class ResponseFormat:
-    summary: str
-    temperature_celcius: float
-    temperature_fahrenheit: float
-    humidity: float
-
-def get_weather(city: str):
-    """Gets the weather for a given city using wttr.in (returns JSON or raises)."""
+# --- Tools (Unchanged) ---
+@tool
+def get_weather(city: str) -> dict:
+    """Gets the weather for a given city using wttr.in. Returns a JSON dictionary."""
     try:
-        # wttr.in JSON format: https://wttr.in/:help
-        resp = requests.get(f"https://wttr.in/{city}?format=j1", timeout=10)
-        resp.raise_for_status()
-        return resp.json()
+        response = requests.get(f"https://wttr.in/{city}?format=j1")
+        response.raise_for_status()
+        return response.json()
     except requests.exceptions.RequestException as e:
-        raise RuntimeError(f"Error getting weather: {e}")
+        return {"error": f"Error getting weather: {e}"}
+    except requests.exceptions.JSONDecodeError:
+        return {"error": "Received invalid JSON from weather service."}
 
-def locate_user(context: Context) -> str:
-    """Simple location lookup based on user_id."""
-    match context.user_id:
+@tool('locate_user', description="Get the location of the user based on the context.")
+def locate_user(runtime: ToolRuntime[Context]) -> str:
+    user_id = runtime.context.user_id if runtime.context else 'Unknown'
+    match user_id:
         case 'ABC123':
             return 'Mangaluru'
         case 'XYZ789':
@@ -40,54 +51,74 @@ def locate_user(context: Context) -> str:
         case _:
             return 'Unknown'
 
-def c_to_f(c: float) -> float:
-    return c * 9.0 / 5.0 + 32.0
+# --- Agent Setup ---
 
-def build_response_for_user(context: Context) -> ResponseFormat:
-    city = locate_user(context)
-    if city == 'Unknown':
-        summary = "I couldn't determine your location from the provided context."
-        return ResponseFormat(summary=summary, temperature_celcius=0.0, temperature_fahrenheit=0.0, humidity=0.0)
+llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0.3)
 
-    data = get_weather(city)
+# 1. LLM for the FINAL response (with structured output enforced)
+# This LLM will be used to generate the final, structured response 
+# *after* the tools have run.
+final_response_llm = llm.with_structured_output(ResponseFormat, method="json")
 
-    # wttr.in JSON layout: current_condition is a list with first element having 'temp_C', 'humidity', 'weatherDesc'
-    try:
-        current = data['current_condition'][0]
-        temp_c = float(current.get('temp_C'))
-        humidity = float(current.get('humidity'))
-        weather_desc_list = current.get('weatherDesc', [])
-        weather_desc = weather_desc_list[0].get('value') if weather_desc_list else "No description"
-    except Exception as e:
-        raise RuntimeError(f"Unexpected weather data format: {e}")
+# 2. Tools
+tools = [get_weather, locate_user]
 
-    temp_f = c_to_f(temp_c)
-    # Compose a light-hearted summary (you can replace this with LLM-generated text)
-    summary = (
-        f"Right now in {city}: {weather_desc}. "
-        f"Temperature is {temp_c:.1f}°C ({temp_f:.1f}°F) with humidity around {humidity:.0f}%. "
-        "Stay hydrated — I'm just a bot but even I feel the humidity! 😄"
-    )
+# 3. Prompt Template
+system_prompt = (
+    "You are a helpful weather assistant, who always cracks jokes and is humorous "
+    "while remaining helpful. Use the provided tools to find the user's location "
+    "and the weather data. Once you have the data, summarize it for the user."
+)
 
-    return ResponseFormat(
-        summary=summary,
-        temperature_celcius=temp_c,
-        temperature_fahrenheit=temp_f,
-        humidity=humidity
-    )
+prompt = ChatPromptTemplate.from_messages(
+    [
+        ("system", system_prompt),
+        MessagesPlaceholder(variable_name="chat_history", optional=True),
+        ("human", "{input}"),
+        MessagesPlaceholder(variable_name="agent_scratchpad"),
+    ]
+)
 
-if __name__ == "__main__":
-    # Example invocation (mirrors how you called agent.invoke)
-    ctx = Context(user_id="ABC123")
-    try:
-        resp = build_response_for_user(ctx)
-    except RuntimeError as e:
-        print("Error:", e, file=sys.stderr)
-        sys.exit(1)
+# 4. Agent Runnable Construction (The standard Tool-Calling Agent)
+# This handles the tool-use logic.
+agent_runnable = create_tool_calling_agent(
+    llm=llm, # Use the standard LLM for tool calling
+    tools=tools,
+    prompt=prompt,
+)
 
-    print("\n--- Agent's Final Answer (simulated) ---\n")
-    print("Structured response object:", resp)
-    print("\nSummary:\n", resp.summary)
-    print("\nTemperature (°C):", resp.temperature_celcius)
-    print("Temperature (°F):", resp.temperature_fahrenheit)
-    print("Humidity (%):", resp.humidity)
+# 5. Agent Executor
+agent_executor = AgentExecutor(
+    agent=agent_runnable,
+    tools=tools,
+    verbose=True 
+)
+
+# 6. Final Chain Construction
+# The AgentExecutor runs the tools, and its final output (a Message object)
+# is passed to the final_response_llm to be converted to the structured format.
+chain = agent_executor | final_response_llm 
+
+
+# --- Invocation ---
+
+print("Invoking agent for Mangaluru weather...")
+
+config = {
+    'configurable': {
+        'context': Context(user_id="ABC123"),
+    }
+}
+
+# Invoke the full chain now
+response = chain.invoke(
+    {"input": "What is the weather like?", "chat_history": []}, # Agent needs "input"
+    config=config
+)
+
+
+print("\n--- Agent's Final Answer ---")
+# The final result is the Pydantic object directly (since it's the last step in the chain)
+print(response)
+print(response.summary)
+print(response.temperature_celcius)
